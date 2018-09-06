@@ -172,3 +172,23 @@ type CoreTests () =
             Incr.Stabilize() |> ignore
         
         Assert.AreEqual("c", lastObservation)
+
+    [<Test>]
+    member __.``Signals can be collected`` () =
+        use Incr = new Incremental()
+        let Var = Incr.Var
+
+        let v1 = Var.Create("a")
+
+        let createAndReadSignal() =
+            let s1 = Incr.Map((+) "b", v1)
+            Incr.Stabilize() |> ignore
+            let _ = s1.Value
+            s1.WeakRef
+        
+        for _i = 0 to 5 do
+            let wsig = createAndReadSignal()
+            GC.Collect()
+            let alive, _ = wsig.TryGetTarget()
+            Assert.False(alive, "Signal should be collected")
+
