@@ -1,4 +1,4 @@
-namespace Incremental.NET.Tests
+module Incremental.NET.Tests
 
 open System
 open Incremental.NET
@@ -6,9 +6,27 @@ open NUnit.Framework
 open System.Threading.Tasks
 open System.Threading
 
+module Utilities =
+    type TestNode  = { value: string; children: TestNode list }
+
+    let mkTestNode (rng:Random) =
+        let depth = rng.Next(1, 7)
+
+        let rec loop (levels:int) : TestNode =
+            let value = Char.ConvertFromUtf32(rng.Next(65, 90)).ToString()
+            if levels = 0 then 
+                { value = value; children = []}
+            else
+                let nchildren = rng.Next(1, 5)
+                { value = value
+                  children = [ for i = 0 to nchildren do yield loop (levels - 1) ] }
+
+        loop depth  
+
+open Utilities        
+
 [<CoreTests>]
 type CoreTests () =
-
     [<SetUp>]
     member this.Setup () =
         ()
@@ -191,4 +209,30 @@ type CoreTests () =
             GC.Collect()
             let alive, _ = wsig.TryGetTarget()
             Assert.False(alive, "Signal should be collected")
+
+    [<Test>]
+    member __.``Running random trees works``() =
+
+        let rec runTree (node:TestNode) =
+            let Incr = new Incremental()
+            let root = Incr.Var.Create(node.value)
+            for child in node.children do
+                runNode child Incr root (node.value)
+
+        and runNode (node:TestNode) (incrCtx:Incremental) (parent:ISignal<string>) (parentStr:string) =
+            let signal = Incremental.map incrCtx parent (fun s -> s + node.value)
+            incrCtx.Stabilize() |> ignore
+            Assert.AreEqual(parentStr + node.value, signal.Value)
+
+            for child in node.children do
+                runNode child incrCtx signal (parentStr + node.value)
+            
+            incrCtx.Stabilize() |> ignore
+            Assert.AreEqual(parentStr + node.value, signal.Value)
+
+        let rng = new Random(1)
+        for _i = 0 to 2 do
+            let node = mkTestNode rng
+            printfn "Running tree %A" node
+            runTree node
 
